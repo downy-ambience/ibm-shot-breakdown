@@ -87,6 +87,10 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 .comment-delete{margin-left:auto;background:none;border:none;color:#475569;font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .2s}
 .comment-delete:hover{color:#f87171;background:rgba(248,113,113,.1)}
 .comment-text{font-size:13px;color:#94a3b8;line-height:1.6;word-break:break-word}
+.comment-translated{font-size:11px;color:#475569;margin-top:2px;font-style:italic}
+.comment-original-lang{font-size:9px;color:#334155;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.04);vertical-align:middle}
+.translating-indicator{font-size:11px;color:#6366f1;font-style:italic;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .comment-form{display:flex;gap:8px;align-items:flex-end}
 .comment-input{flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px 12px;color:#e0e0e8;font-family:'Inter',sans-serif;font-size:13px;resize:none;min-height:36px;max-height:100px;transition:border-color .2s}
 .comment-input:focus{outline:none;border-color:rgba(99,102,241,.4)}
@@ -280,6 +284,26 @@ function initComments() {
   });
 }
 
+// Translate text using MyMemory API (free, no key needed)
+async function translateText(text, fromLang, toLang) {
+  try {
+    const langPair = fromLang === 'ko' ? 'ko|en' : 'en|ko';
+    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + langPair;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.responseStatus === 200 && data.responseData && data.responseData.translatedText) {
+      return data.responseData.translatedText;
+    }
+    return null;
+  } catch(e) { console.error('Translation error:', e); return null; }
+}
+
+// Detect if text is primarily Korean
+function isKorean(text) {
+  const koreanChars = text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g);
+  return koreanChars && koreanChars.length > text.length * 0.1;
+}
+
 function listenComments(shotId) {
   var q = query(collection(db, COLLECTION), where('stepId', '==', shotId), orderBy('createdAt', 'asc'));
   listeners[shotId] = onSnapshot(q, function(snapshot) {
@@ -303,14 +327,29 @@ function listenComments(shotId) {
       if (currentUser && data.userId === currentUser.uid) {
         deleteBtn = '<button class="comment-delete" onclick="window.deleteComment(\'' + docSnap.id + '\')">✕</button>';
       }
+      // Show text based on current language
+      var displayText = data.text;
+      var translatedLine = '';
+      var origLangBadge = '';
+      if (currentLang === 'en' && data.text_en) {
+        displayText = data.text_en;
+        origLangBadge = '<span class="comment-original-lang">KR→EN</span>';
+      } else if (currentLang === 'kr' && data.text_kr) {
+        displayText = data.text_kr;
+        origLangBadge = '<span class="comment-original-lang">EN→KR</span>';
+      } else if (currentLang === 'en' && data.originalLang === 'ko') {
+        origLangBadge = '<span class="comment-original-lang">KR</span>';
+      } else if (currentLang === 'kr' && data.originalLang === 'en') {
+        origLangBadge = '<span class="comment-original-lang">EN</span>';
+      }
       item.innerHTML = '<img class="comment-avatar" src="' + (data.userPhoto || '') + '" alt="">' +
         '<div class="comment-body">' +
           '<div class="comment-header">' +
-            '<span class="comment-author">' + escapeHtml(data.userName || 'Unknown') + '</span>' +
+            '<span class="comment-author">' + escapeHtml(data.userName || 'Unknown') + origLangBadge + '</span>' +
             '<span class="comment-time">' + timeStr + '</span>' +
             deleteBtn +
           '</div>' +
-          '<div class="comment-text">' + escapeHtml(data.text) + '</div>' +
+          '<div class="comment-text">' + escapeHtml(displayText) + '</div>' +
         '</div>';
       list.appendChild(item);
     });
@@ -326,18 +365,38 @@ window.postComment = async function(shotId, btn) {
   var text = input.value.trim();
   if (!text) return;
   btn.disabled = true;
+  btn.textContent = '⟳';
+
   try {
-    await addDoc(collection(db, COLLECTION), {
+    // Detect language and translate
+    var originalLang = isKorean(text) ? 'ko' : 'en';
+    var commentData = {
       stepId: shotId,
       text: text,
+      originalLang: originalLang,
       userName: currentUser.displayName || currentUser.email,
       userPhoto: currentUser.photoURL || '',
       userId: currentUser.uid,
       createdAt: serverTimestamp()
-    });
+    };
+
+    // Auto-translate
+    var translated = await translateText(text, originalLang, originalLang === 'ko' ? 'en' : 'ko');
+    if (translated) {
+      if (originalLang === 'ko') {
+        commentData.text_kr = text;
+        commentData.text_en = translated;
+      } else {
+        commentData.text_en = text;
+        commentData.text_kr = translated;
+      }
+    }
+
+    await addDoc(collection(db, COLLECTION), commentData);
     input.value = '';
     input.style.height = 'auto';
   } catch(err) { console.error('Post error:', err); }
+  btn.textContent = currentLang === 'kr' ? '전송' : 'Send';
   btn.disabled = false;
 };
 
