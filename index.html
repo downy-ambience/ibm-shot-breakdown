@@ -87,6 +87,8 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 .comment-delete{margin-left:auto;background:none;border:none;color:#475569;font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .2s}
 .comment-delete:hover{color:#f87171;background:rgba(248,113,113,.1)}
 .comment-text{font-size:13px;color:#94a3b8;line-height:1.6;word-break:break-word}
+.comment-translation{font-size:12px;color:#64748b;line-height:1.5;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);word-break:break-word;font-style:italic}
+.translation-label{font-size:10px;font-weight:700;color:#475569;background:rgba(255,255,255,0.05);padding:1px 6px;border-radius:3px;margin-right:4px;font-style:normal;letter-spacing:.5px}
 .comment-translated{font-size:11px;color:#475569;margin-top:2px;font-style:italic}
 .comment-original-lang{font-size:9px;color:#334155;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.04);vertical-align:middle}
 .translating-indicator{font-size:11px;color:#6366f1;font-style:italic;animation:pulse 1.5s infinite}
@@ -333,20 +335,22 @@ function listenComments(shotId) {
       if (currentUser && data.userId === currentUser.uid) {
         deleteBtn = '<button class="comment-delete" onclick="window.deleteComment(\'' + docSnap.id + '\')">✕</button>';
       }
-      // Show text based on current language
+      // Show original text + translation below
       var displayText = data.text;
-      var translatedLine = '';
+      var translationHtml = '';
       var origLangBadge = '';
-      if (currentLang === 'en' && data.text_en) {
-        displayText = data.text_en;
-        origLangBadge = '<span class="comment-original-lang">KR→EN</span>';
-      } else if (currentLang === 'kr' && data.text_kr) {
-        displayText = data.text_kr;
-        origLangBadge = '<span class="comment-original-lang">EN→KR</span>';
-      } else if (currentLang === 'en' && data.originalLang === 'ko') {
+      if (data.originalLang === 'ko') {
+        displayText = data.text_kr || data.text;
         origLangBadge = '<span class="comment-original-lang">KR</span>';
-      } else if (currentLang === 'kr' && data.originalLang === 'en') {
+        if (data.text_en) {
+          translationHtml = '<div class="comment-translation"><span class="translation-label">EN</span> ' + escapeHtml(data.text_en) + '</div>';
+        }
+      } else if (data.originalLang === 'en') {
+        displayText = data.text_en || data.text;
         origLangBadge = '<span class="comment-original-lang">EN</span>';
+        if (data.text_kr) {
+          translationHtml = '<div class="comment-translation"><span class="translation-label">KR</span> ' + escapeHtml(data.text_kr) + '</div>';
+        }
       }
       item.innerHTML = '<img class="comment-avatar" src="' + (data.userPhoto || '') + '" alt="">' +
         '<div class="comment-body">' +
@@ -356,6 +360,7 @@ function listenComments(shotId) {
             deleteBtn +
           '</div>' +
           '<div class="comment-text">' + escapeHtml(displayText) + '</div>' +
+          translationHtml +
         '</div>';
       list.appendChild(item);
     });
